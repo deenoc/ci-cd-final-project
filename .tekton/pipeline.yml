@@ -1,0 +1,110 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: ci-cd-pipeline
+spec:
+  params:
+    - name: git-url
+      type: string
+    - name: revision
+      type: string
+      default: main
+    - name: app-name
+      type: string
+    - name: build-image
+      type: string
+  workspaces:
+    - name: output
+  tasks:
+    - name: cleanup
+      taskRef:
+        name: cleanup
+      runAfter: []  # Ensures this runs first
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: git-clone
+      taskRef:
+        name: git-clone
+      runAfter: [cleanup]  # Runs after cleanup is finished
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.revision)
+        - name: deleteExisting
+          value: "true"
+        - name: sslVerify
+          value: "true"
+        - name: submodules
+          value: "false"
+        - name: depth
+          value: "1"
+      workspaces:
+        - name: output
+          workspace: output
+
+    - name: flake8
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: lint
+            image: python:3.9
+            workingDir: $(workspaces.source.path)
+            script: |
+              pip install flake8
+              flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+              flake8 . --count --max-complexity=10 --max-line-length=127 --statistics
+      runAfter: [git-clone]
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: nose
+      taskRef:
+        name: nose
+      runAfter: [flake8]
+      params:
+        - name: args
+          value: "-v"
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: buildah
+      taskRef:
+        name: buildah
+        kind: Task
+      runAfter: [nose]
+      params:
+        - name: IMAGE
+          value: $(params.build-image)
+        - name: TLSVERIFY
+          value: "false"
+        - name: STORAGE_DRIVER
+          value: "vfs"
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: deploy
+      taskSpec:
+        params:
+          - name: app-name
+            type: string
+          - name: build-image
+            type: string
+        steps:
+          - name: oc-deploy
+            image: quay.io/openshift/origin-cli:latest
+            script: |
+              #!/bin/bash
+              oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
+      params:
+        - name: app-name
+          value: $(params.app-name)
+        - name: build-image
+          value: $(params.build-image)
+      runAfter: [buildah]

@@ -1,0 +1,28 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: buildah
+spec:
+  params:
+    - name: IMAGE
+      type: string
+    - name: TLSVERIFY
+      type: string
+      default: "true"
+    - name: STORAGE_DRIVER
+      type: string
+      default: "vfs"
+  workspaces:
+    - name: source
+  steps:
+    - name: build
+      image: quay.io/buildah/stable:v1.31.0
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: STORAGE_DRIVER
+          value: $(params.STORAGE_DRIVER)
+      script: |
+        #!/bin/bash
+        set -e
+        echo "Building image with Buildah (rootless mode)..."
+        buildah --storage-driver=${STORAGE_DRIVER} bud --isolation chroot --tls-verify=$(params.TLSVERIFY) -f Dockerfile -t $(params.IMAGE) .
