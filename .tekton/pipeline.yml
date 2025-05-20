@@ -1,110 +1,98 @@
 apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
+  creationTimestamp: '2025-05-20T06:11:16Z'
+  generation: 2
+  managedFields:
+    - apiVersion: tekton.dev/v1beta1
+      fieldsType: FieldsV1
+      fieldsV1:
+        'f:spec':
+          .: {}
+          'f:params': {}
+          'f:tasks': {}
+          'f:workspaces': {}
+      manager: Mozilla
+      operation: Update
+      time: '2025-05-20T06:15:26Z'
   name: ci-cd-pipeline
+  namespace: sn-labs-dinughit
+  resourceVersion: '2181146833'
+  uid: f6e2a19c-ba84-411d-94b4-83970dfc3804
 spec:
   params:
-    - name: git-url
+    - default: counter-app
+      name: app-name
       type: string
-    - name: revision
+    - default: 'image-registry.openshift-image-registry.svc:5000/sn-labs-dinughit/counter-app:latest'
+      name: build-image
       type: string
-      default: main
-    - name: app-name
-      type: string
-    - name: build-image
-      type: string
-  workspaces:
-    - name: output
   tasks:
     - name: cleanup
       taskRef:
+        kind: Task
         name: cleanup
-      runAfter: []  # Ensures this runs first
       workspaces:
         - name: source
           workspace: output
-
     - name: git-clone
-      taskRef:
-        name: git-clone
-      runAfter: [cleanup]  # Runs after cleanup is finished
       params:
         - name: url
-          value: $(params.git-url)
-        - name: revision
-          value: $(params.revision)
+          value: 'https://github.com/deenoc/ci-cd-final-project'
         - name: deleteExisting
-          value: "true"
-        - name: sslVerify
-          value: "true"
-        - name: submodules
-          value: "false"
-        - name: depth
-          value: "1"
+          value: 'true'
+      runAfter:
+        - cleanup
+      taskRef:
+        kind: Task
+        name: git-clone
       workspaces:
         - name: output
           workspace: output
-
-    - name: flake8
-      taskSpec:
-        workspaces:
-          - name: source
-        steps:
-          - name: lint
-            image: python:3.9
-            workingDir: $(workspaces.source.path)
-            script: |
-              pip install flake8
-              flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-              flake8 . --count --max-complexity=10 --max-line-length=127 --statistics
-      runAfter: [git-clone]
-      workspaces:
-        - name: source
-          workspace: output
-
-    - name: nose
+    - name: lint
+      runAfter:
+        - git-clone
       taskRef:
-        name: nose
-      runAfter: [flake8]
-      params:
-        - name: args
-          value: "-v"
-      workspaces:
-        - name: source
-          workspace: output
-
-    - name: buildah
-      taskRef:
-        name: buildah
         kind: Task
-      runAfter: [nose]
+        name: flake8
+      workspaces:
+        - name: source
+          workspace: output
+    - name: test
+      runAfter:
+        - lint
+      taskRef:
+        kind: Task
+        name: nose
+      workspaces:
+        - name: source
+          workspace: output
+    - name: build
       params:
         - name: IMAGE
           value: $(params.build-image)
-        - name: TLSVERIFY
-          value: "false"
-        - name: STORAGE_DRIVER
-          value: "vfs"
+      runAfter:
+        - test
+      taskRef:
+        kind: Task
+        name: buildah
       workspaces:
         - name: source
           workspace: output
-
     - name: deploy
-      taskSpec:
-        params:
-          - name: app-name
-            type: string
-          - name: build-image
-            type: string
-        steps:
-          - name: oc-deploy
-            image: quay.io/openshift/origin-cli:latest
-            script: |
-              #!/bin/bash
-              oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
       params:
-        - name: app-name
-          value: $(params.app-name)
-        - name: build-image
-          value: $(params.build-image)
-      runAfter: [buildah]
+        - name: SCRIPT
+          value: |
+            oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
+        - name: VERSION
+          value: latest
+      runAfter:
+        - build
+      taskRef:
+        kind: Task
+        name: openshift-client
+      workspaces:
+        - name: source
+          workspace: output
+  workspaces:
+    - name: output
