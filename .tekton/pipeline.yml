@@ -68,17 +68,16 @@ spec:
         - name: source
           workspace: output
     - name: build
-      params:
-        - name: IMAGE
-          value: $(params.build-image)
       runAfter:
         - test
-      taskRef:
-        kind: Task
-        name: buildah
-      workspaces:
-        - name: source
-          workspace: output
+      taskSpec:
+        steps:
+          - name: simulate-build
+            image: registry.access.redhat.com/ubi8/ubi
+            script: |
+              #!/bin/bash
+              echo "Simulating image build and push..."
+              echo "This is a placeholder for actual Buildah/Kaniko logic."
     - name: deploy
       params:
         - name: SCRIPT

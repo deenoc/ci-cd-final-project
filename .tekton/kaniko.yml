@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: kaniko
+spec:
+  params:
+    - name: IMAGE
+      type: string
+      description: The image name to build and push
+  workspaces:
+    - name: source
+      description: The source code and Dockerfile
+  steps:
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:latest
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: DOCKER_CONFIG
+          value: /kaniko/.docker
+      volumeMounts:
+        - name: kaniko-secret
+          mountPath: /kaniko/.docker
+      args:
+        - "--dockerfile=Dockerfile"
+        - "--destination=$(params.IMAGE)"
+        - "--context=dir://$(workspaces.source.path)"
+        - "--insecure"
+        - "--skip-tls-verify"
+  volumes:
+    - name: kaniko-secret
+      secret:
+        secretName: push-secret
